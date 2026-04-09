@@ -22,6 +22,7 @@ Provides guided setup for creating a Context OS — a structured knowledge graph
 | `context-os-basics` | Foundation patterns for context OS |
 | `epistemic-context-grounding` | Ground decisions in domain knowledge before designing |
 | `context-gap-analysis` | Check what exists before building |
+| `context-os-cli` | Query work context, file activity, heat metrics, and knowledge graph via context-os CLI |
 
 ---
 
