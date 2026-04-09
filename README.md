@@ -1,90 +1,86 @@
 # GTM Context OS Quickstart
 
-**Build a context operating system where your AI never forgets what you've taught it.**
+Build your first context operating system in 10 minutes. A structured knowledge graph where AI compounds intelligence over time.
 
-A context operating system centralizes your scatter documents, transcripts and other working context sources into an living source of truth that eliminates the endless context switching and constantly having to tell your AI the same thing over and over. 
+## Prerequisites
 
-Instead, you get a compounding intelligence asset that gets smarter the more you use it, since once you solve a problem with your context OS you can save it and reuse it forever. 
+### 1. Claude Code
 
-[![Watch the GTM Context OS Quickstart](https://img.youtube.com/vi/acI1zRtpgEc/maxresdefault.jpg)](https://youtu.be/acI1zRtpgEc)
+Install [Claude Code](https://claude.ai/code) — the CLI for Claude.
 
+### 2. Context-OS CLI
 
-## The Problem
+The context-os CLI gives your system structural intelligence — graph queries, file heat tracking, and behavioral co-access analysis.
 
-Every new AI session starts from scratch. You re-explain your business, re-teach your preferences, re-provide context. Knowledge doesn't compound.
-
-## The Solution
-
-A Context OS structures your knowledge so AI:
-- Remembers everything across sessions
-- Links concepts together (graph, not files)
-- Compounds intelligence over time
-
-## Get Started
-
+**macOS/Linux:**
 ```bash
-git clone https://github.com/jacob-dietle/gtm-context-os-quickstart.git
-cd gtm-context-os-quickstart
+curl -fsSL https://install.tastematter.dev/install-context-os.sh | bash
 ```
 
-Open in Cursor (or any editor with Claude Code), then run:
-
+**Windows (PowerShell):**
+```powershell
+irm https://install.tastematter.dev/install-context-os.ps1 | iex
 ```
-/quickstart
+
+Verify: `context-os --version`
+
+## Quick Start
+
+1. Fork this repo (or clone it)
+2. Open in Claude Code: `claude`
+3. Run: `/quickstart`
+4. Follow the guided setup (~10 minutes)
+
+The quickstart will:
+- Ask what your context OS is for (GTM, Product, Research)
+- Create the two-layer directory structure
+- Generate your CLAUDE.md navigation guide
+- Process your first piece of content
+- Verify it works
+
+## What You Get
+
+A knowledge system with two layers:
+
+**Knowledge Graph** (`knowledge_base/`) — Atomic concepts linked via `[[wiki-links]]`. Each concept has structured frontmatter, a lifecycle (`emergent` → `validated` → `canonical`), and connections to related ideas.
+
+**Operational Docs** (`00_foundation/`) — Strategic documents (positioning, messaging, brand) that compose from the knowledge graph. They reference concepts, they don't redefine them.
+
+### Context-OS CLI
+
+After setup, initialize the CLI to start tracking your work:
+```bash
+context-os init          # Index your sessions, build chains
+context-os daemon start  # Background sync (auto-tracks file access)
 ```
 
-In 10 minutes you'll have:
-- Structured knowledge base
-- Navigation guide for AI
-- Your first processed content
-- Working system that persists
+Then query your system:
+```bash
+# Graph structure — find orphans, hubs, node counts
+context-os graph-exec --graph knowledge_base '(() => {
+  const r = codemode.graph_query({ filter: {}, limit: 500 });
+  return JSON.stringify({ total: r.total,
+    orphans: r.nodes.filter(n => n.link_count.outbound === 0 && n.link_count.inbound === 0).length
+  });
+})()'
 
-## What's Included
+# File heat — what's been active
+context-os query heat --time 14d --limit 10 --format csv
 
-### Commands
-- `/quickstart` - Guided setup (10 min)
-- `/ingest` - Process content into knowledge
-- `/graph-health` - Check system health
+# Co-access — which files travel together
+context-os query co-access knowledge_base/technical/my-concept.md
 
-### Templates
-- CLAUDE.md starter
-- Taxonomy configuration
-- Ontology rules
-- Knowledge node format
+# Broad context search
+context-os context "positioning"
+```
 
-### Skills
-- `context-os-basics` - Foundation patterns
-- `epistemic-context-grounding` - Ground decisions in domain knowledge before designing
-- `context-gap-analysis` - Check what exists before building
+## Commands
 
-## How It Works
-
-**Two Layers:**
-
-1. **Atomic Knowledge** (knowledge_base/)
-   - Individual concepts with metadata
-   - Linked via [[wiki-links]]
-   - Lifecycle: emergent → validated → canonical
-
-2. **Operational Docs** (00_foundation/)
-   - Strategic documents that compose atomic concepts
-   - Positioning, messaging, processes
-
-**Constitutional Docs:**
-- `taxonomy.yaml` - Your blessed tags
-- `ontology.yaml` - How concepts relate
-
-## Requirements
-
-- Claude Code CLI or Cursor with Claude Code extension
-- Claude Pro subscription ($20/month)
+| Command | Purpose |
+|---------|---------|
+| `/quickstart` | Guided setup experience |
+| `/ingest` | Process raw content into the knowledge graph |
 
 ## Learn More
 
-For advanced patterns (multi-agent orchestration, team governance, enterprise taxonomy):
-
-https://taste.systems
-
----
-
-**Built by Jacob Dietle** | https://taste.systems
+For advanced patterns (multi-agent orchestration, client engagement systems, enterprise context architectures): [taste.systems](https://taste.systems)
