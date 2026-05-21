@@ -1,211 +1,176 @@
 ---
 name: code-service-defrag
-description: This skill should be used to periodically audit a multi-app/multi-service codebase for duplication, drift, and silent-overwrite landmines. Scans all `apps/*` directories (or equivalent) for duplicate Cloudflare Worker names, colliding D1/KV/R2/domain bindings, stale forks, ambiguous canonical-vs-archived status, and orphan repos. Produces a severity-ranked defrag report. Detect-only — does NOT auto-consolidate. Apply proactively on a monthly cadence (surfaced by `context-foundation` at session start), or reactively before any risky deploy, after a migration, or whenever canonical-source ambiguity is suspected. Core principle — agentic coding creates leverage at the cost of visibility, so drift accumulates silently until a `deploy` command hits the wrong codebase. Run defrag before the landmine fires, not after.
+description: This skill should be used to periodically audit a multi-app/multi-service codebase for duplication, drift, and silent-overwrite landmines — on any deploy platform (Cloudflare, Railway, Vercel, Fly, Render, Docker Compose). Scans for duplicate deploy-target names, colliding shared-resource bindings (shared databases, datastores, domains, CF D1/KV/R2), stale forks, ambiguous canonical-vs-archived status, and spec/context drift. Produces a severity-ranked report. Detect-only — does NOT auto-consolidate. Apply proactively on a monthly cadence, or reactively before any risky deploy, after a migration, or whenever canonical-source ambiguity is suspected. Core principle — agentic coding creates leverage at the cost of visibility, so drift accumulates silently until a deploy command hits the wrong target.
 ---
 
 # Code + Service Defrag
 
-Systematic audit of `apps/` for duplication, drift, and silent-overwrite landmines in a multi-service codebase where agents and humans both create and modify code.
+Systematic audit of a multi-service codebase for duplication, drift, and silent-overwrite landmines — where agents and humans both create and modify code faster than anyone maintains a mental model of it.
+
+## The First Principle
+
+**Any system with multiple deployable units accumulates collision risk: two things that can silently overwrite or corrupt each other.** The platform changes the vocabulary, not the problem.
+
+| Universal concept | Cloudflare | Railway | Vercel | Fly | Docker Compose |
+|---|---|---|---|---|---|
+| **Deploy target** (what a deploy pushes to) | Worker name | Service name | Project name | App name | Compose service |
+| **Shared datastore** (silent corruption risk) | D1 `database_id` | `DATABASE_URL` / Postgres | Linked DB | attached Postgres | named volume / DB service |
+| **Domain claim** (exclusive, last-writer-wins) | route `pattern` | service domain | project domain | `[[services]]` | published port |
+| **Deploy config** | `wrangler.toml` | `railway.json/toml` | `vercel.json` | `fly.toml` | `docker-compose.yml` |
+
+The landmine is always the same shape: **two configs name the same target, or bind the same shared resource, and a deploy from the wrong directory clobbers production.** This skill scans for that shape across every platform present in the repo.
 
 ## When to Apply This Skill
 
 Apply when:
-- **Periodic:** last defrag >30 days ago (surfaced by `context-foundation` at session start)
-- **Pre-deploy:** before any `wrangler deploy`, `gh release`, or equivalent risky action on a shared account
-- **Post-migration:** immediately after `git subtree add`, repo merge, directory move, or fork consolidation
-- **Post-multi-agent work:** after `coordinated-agent-teams` execution — parallel agents create parallel fragments
+- **Periodic:** last defrag >30 days ago
+- **Pre-deploy:** before any `deploy` / `push` / `release` on a shared account
+- **Post-migration:** immediately after a repo merge, `git subtree add`, directory move, or fork consolidation
+- **Post-multi-agent work:** after parallel agents create parallel fragments
 - **On-demand:** when canonical-source ambiguity is suspected ("which one is the real one?")
-- **On confusion:** when an agent or human catches themselves saying "I thought I deleted that" or "didn't we consolidate that?"
+- **On confusion:** when someone catches themselves saying "I thought I deleted that" or "didn't we consolidate that?"
 
 Do NOT apply when:
-- Starting a greenfield project with no existing `apps/` directory
-- Auditing knowledge base branches (use `kb-branch-audit` instead)
-- Auditing a single app's internal structure (use `simplify` or `debugging-and-complexity-assessment`)
-- Fixing is already planned and scoped — skip to `application-git-engineering`
+- Starting a greenfield project with no existing multi-service layout
+- Auditing knowledge base branches (use a KB-specific audit instead)
+- Auditing a single app's internal structure (use a general code-review/simplify pass)
+- Fixing is already planned and scoped — skip to the migration step
 
 ## Core Principle
 
-**Agentic coding creates leverage at the cost of visibility.** Sessions end with multiple codebases, forks, and deploy surfaces that nobody has a clear mental model of. Drift is silent until a wrong-directory `deploy` command fires. This skill codifies the scan that would have caught the landmine *before* it fired — the same scan that `epistemic-context-grounding` performs ad-hoc for one question, applied systematically to the entire deploy surface.
+**Agentic coding creates leverage at the cost of visibility.** Sessions end with multiple codebases, forks, and deploy surfaces that nobody has a clear mental model of. Drift is silent until a wrong-directory deploy fires. This skill codifies the scan that would have caught the landmine *before* it fired.
 
-**Detect-only, never auto-fix.** Same philosophy as `kb-branch-audit` and `production-hardening`: the skill produces a severity-ranked report; the human decides what to consolidate and which downstream skill to invoke. Auto-fixing would re-introduce the cowboy problem this skill is built to prevent.
+**Detect-only, never auto-fix.** The skill produces a severity-ranked report; the human decides what to consolidate. Auto-fixing would re-introduce the cowboy problem this skill is built to prevent.
 
 ## Workflow
 
 ### Step 1: Establish Scan Scope
 
-Default scope: `apps/*` in the current repo. Extend to sibling top-level directories (e.g., `services/`, `packages/`) only if they contain deployable units with their own configs.
+Default scope: `apps/*` (or `services/`, `packages/`) in the current repo — any directory holding deployable units with their own configs.
 
-Determine scope:
 ```bash
-# List all app-like directories
-ls -d apps/*/ 2>/dev/null
+# List app-like directories
+ls -d apps/*/ services/*/ packages/*/ 2>/dev/null
 
-# Spot any siblings that look like deployable units
-find . -maxdepth 3 -name "wrangler.toml" -o -name "fly.toml" -o -name "Dockerfile" 2>/dev/null | head -20
+# Spot deployable units across platforms
+find . -maxdepth 3 \( -name "wrangler.toml" -o -name "railway.json" -o -name "railway.toml" \
+  -o -name "vercel.json" -o -name "fly.toml" -o -name "render.yaml" \
+  -o -name "docker-compose.yml" -o -name "Dockerfile" \) -not -path "*/node_modules/*" 2>/dev/null
 ```
 
 Confirm scope with the user if ambiguous.
 
 ### Step 2: Run the Full Defrag Scan
 
-Execute the master scanner:
 ```bash
-bash .claude/skills/code-service-defrag/scripts/defrag_scan.sh
+bash .claude/skills/code-service-defrag/scripts/defrag_scan.sh [scope_root]
 ```
 
-The master scanner runs six sub-scans in order and aggregates findings:
-1. `scan_worker_names.sh` — duplicate CF Worker names across configs
-2. `scan_bindings.sh` — colliding D1 `database_id`, KV `id`, R2 bucket names, custom domain routes
+The master scanner runs six sub-scans and aggregates findings:
+1. `scan_deploy_target_names.sh` — duplicate deploy-target names across CF / Railway / Vercel / Fly / Render / Compose configs
+2. `scan_bindings.sh` — shared-datastore collisions (Postgres/Supabase/MySQL/`DATABASE_URL`) + CF D1/KV/R2/route collisions
 3. `scan_archive_markers.sh` — directories with no explicit CANONICAL or ARCHIVED marker in their README
 4. `scan_stale_forks.sh` — directories sharing similar names with divergent commit activity
-5. `scan_spec_dirs.sh` — spec/context-packages drift: multiple `context_packages/` per project, empty convention dirs, legacy `_system/specs/`, orphan files at spec root, missing layout README
+5. `scan_spec_dirs.sh` — spec/context-package drift (parallel conventions, orphan files, legacy staging dirs)
 6. `scan_deploy_surface.sh` — enumeration of every location a deploy can fire from, with git remote
 
-If a sub-scan fails or returns no output, that is a finding in itself — note it explicitly (e.g., "no `wrangler.toml` files found" is valid for a non-CF codebase).
+If a sub-scan returns no output, that is a finding in itself — note it explicitly (e.g., "no platform configs found" is valid for a library-only repo).
 
 ### Step 3: Classify Findings by Severity
 
-Every finding maps to one of three severities. Never ship a report without severity assignments.
-
 | Severity | Meaning | Trigger |
 |----------|---------|---------|
-| 🔴 **Landmine** | A single `deploy` command could silently regress production | Duplicate worker names with identical bindings; duplicate D1 IDs; overlapping custom domain routes |
-| 🟡 **Drift** | Ambiguity that will become a landmine if not resolved | No archive marker on an inactive directory; test count mismatch between similarly-named dirs; orphan repos (>90d no commits, no CI, no CLAUDE.md reference) |
-| 🟢 **OK** | Expected state — explicit canonical or archived marker present, no collisions | Directory with clear README disposition; single config per worker name |
+| 🔴 **Landmine** | A single deploy could silently regress production | Duplicate deploy-target names with identical bindings; duplicate datastore bindings on prod; overlapping domain claims |
+| 🟡 **Drift** | Ambiguity that will become a landmine if not resolved | Same datastore referenced from multiple services; no archive marker on an inactive directory; stale fork; spec drift |
+| 🟢 **OK** | Expected state — explicit marker, no collisions | Directory with clear README disposition; single config per target name |
 
-Consult `references/landmine-patterns.md` for the specific shapes that map to 🔴 (established from prior incidents).
+Consult `references/landmine-patterns.md` for the specific shapes that map to each severity.
 
 ### Step 4: Produce the Defrag Report
 
-Write the report to `_system/reports/defrag_YYYY-MM-DD.md`. Structure it as:
+Write the report to `_system/reports/defrag_YYYY-MM-DD.md` (or wherever the repo keeps reports). Structure:
 
 ```markdown
 # Defrag Report — YYYY-MM-DD
 
 ## Scope
 - Directories scanned: N
-- Configs found: X wrangler.toml, Y package.json, Z Dockerfile
+- Configs found: X by platform
 
 ## Findings by Severity
-
 ### 🔴 Landmines (N)
 1. **[finding title]** — [what collides, where, evidence]
-   - Locations: `apps/foo/wrangler.toml:3`, `apps/bar/wrangler.toml:3`
-   - Collision: `name = "worker-x"` + identical D1 `database_id`
-   - Recommended downstream: `devops-architecture-perspectives` → `specification-driven-development` → `application-git-engineering`
+   - Locations: `apps/foo/<config>:3`, `apps/bar/<config>:3`
+   - Collision: same deploy-target name + same datastore binding
+   - Recommended downstream: pick canonical → write consolidation plan → migrate → verify
 
 ### 🟡 Drift (N)
-1. ...
-
 ### 🟢 OK (N)
-- Listed without detail; report-only.
 
 ## Deploy Surface Inventory
-| Location | Config | Target | Last deploy (inferred) |
-| apps/foo/ | wrangler.toml | worker-x @ prod | ... |
+| Location | Config | Target | Domain | Git remote |
 
 ## Recommended Next Actions
-1. [highest-severity finding with specific skill handoff]
-2. ...
 ```
 
-Every finding MUST have:
-- Specific file paths with line numbers
-- Evidence (grep output, git log excerpt, or wrangler field values)
-- A recommended downstream skill chain
+Every finding MUST have: specific file paths with line numbers, evidence, and a recommended next step.
 
 ### Step 5: Present to User + Hand Off
 
 Show the report summary (counts by severity + top 3 landmines if any). Do NOT start consolidating — the user decides.
 
-If 🔴 findings exist, recommend the standard consolidation chain:
+If 🔴 findings exist, the standard consolidation sequence is:
 ```
-devops-architecture-perspectives  (pick canonical)
-    ↓
-consequence-driven-design         (trace 2nd/3rd-order effects)
-    ↓
-specification-driven-development  (write consolidation spec)
-    ↓
-application-git-engineering       (execute migration)
-    ↓
-production-hardening              (verify safety before deploy)
-    ↓
-context-package                   (preserve the why)
+pick canonical → trace 2nd/3rd-order effects → write consolidation spec →
+execute migration (preserve history) → verify safety before deploy → record the why
 ```
 
-If only 🟡 findings exist, recommend either deferring to next defrag or executing lightweight fixes (add archive marker, delete orphan, nothing structural).
+If only 🟡 findings exist, either defer to the next defrag or execute lightweight fixes (add archive marker, delete orphan, document the intentional shared datastore).
 
 ### Step 6: Record the Run
 
-Append one line to `_system/reports/defrag_log.md`:
+Append one line to a defrag log so "last defrag was X days ago" is answerable:
 ```
 YYYY-MM-DD | N scanned | L 🔴 / D 🟡 / O 🟢 | report: defrag_YYYY-MM-DD.md
 ```
-
-This is the source-of-truth for "last defrag was X days ago" that `context-foundation` checks at session start.
 
 ## Bundled Resources
 
 ### Scripts (`scripts/`)
 
-All scripts are bash, cross-platform (tested on git-bash/Windows), detect-only, and exit 0 on success with findings on stdout. None modify the filesystem.
+All scripts are bash, detect-only, exit 0 on success with findings on stdout. None modify the filesystem. None print credentials (the datastore scan reads only host/identifier portions of connection strings, never passwords).
 
 - **`defrag_scan.sh`** — master orchestrator; runs all sub-scans and concatenates output
-- **`scan_worker_names.sh`** — greps every `wrangler.toml` for `name = "X"`, reports duplicates
-- **`scan_bindings.sh`** — reports duplicate D1 `database_id`, KV `id`, R2 bucket names, and custom domain routes across all configs
-- **`scan_archive_markers.sh`** — for each `apps/*/`, checks README for explicit CANONICAL or ARCHIVED marker; flags ambiguous
-- **`scan_stale_forks.sh`** — finds directories with similar base names + diverging last-commit timestamps (e.g., `foo/` vs `foo-v2/`)
-- **`scan_spec_dirs.sh`** — detects context/docs drift per project: multiple `context_packages/` dirs, empty-except-README spec dirs (unused conventions), legacy `_system/specs/` staging areas, orphan `.md` files at `specs/` root, missing layout README. Context drift is as load-bearing as code drift — agents write the wrong spec to the wrong dir and fragment state
-- **`scan_deploy_surface.sh`** — enumerates every `wrangler.toml` / `Dockerfile` / `fly.toml` with their worker names, targets, and git remote
+- **`scan_deploy_target_names.sh`** — duplicate deploy-target names across all supported platforms
+- **`scan_bindings.sh`** — shared-datastore collisions (any stack) + CF D1/KV/R2/route collisions
+- **`scan_archive_markers.sh`** — for each app dir, checks README for explicit CANONICAL or ARCHIVED marker
+- **`scan_stale_forks.sh`** — directories with similar base names + diverging last-commit timestamps
+- **`scan_spec_dirs.sh`** — context/docs drift: parallel `context_packages/` dirs, empty convention dirs, legacy staging dirs, orphan spec files
+- **`scan_deploy_surface.sh`** — enumerates every deploy config (CF/Fly/Docker/Vercel/Railway/Render/Compose) with target name and git remote
 
 Run individually for targeted investigation, or use `defrag_scan.sh` for the full pass.
 
 ### References (`references/`)
 
-- **`landmine-patterns.md`** — the specific shapes of silent-overwrite landmines, with anonymized reproducing snippets and severity rules. Append new shapes as they are discovered.
-- **`downstream-handoff.md`** — decision tree mapping finding types to skill chains. Used when a finding doesn't fit the default landmine-consolidation chain.
-- **`cadence.md`** — when to run, what to expect, how "good" looks over time. Includes the 30-day freshness threshold `context-foundation` checks.
+- **`landmine-patterns.md`** — the specific shapes of silent-overwrite landmines, with anonymized reproducing snippets and severity rules. Patterns are stated platform-agnostically with per-platform examples.
+- **`downstream-handoff.md`** — decision tree mapping finding types to remediation chains.
+- **`cadence.md`** — when to run, what to expect, how "good" looks over time.
 
 ## Quality Gates
 
 Before delivering the report:
 - [ ] Every 🔴 finding has line-numbered evidence
-- [ ] Every finding has a recommended downstream skill chain
+- [ ] Every finding has a recommended next step
 - [ ] Deploy surface inventory is exhaustive (every place a deploy could fire)
-- [ ] Report written to `_system/reports/defrag_YYYY-MM-DD.md`
-- [ ] Log entry appended to `_system/reports/defrag_log.md`
+- [ ] Report written to disk
+- [ ] Log entry appended
 - [ ] No auto-fix actions taken — detect-only respected
 
-## Integration with Other Skills
+## Adapting to Your Stack
 
-### Upstream (skills that trigger defrag)
+The scanners already cover Cloudflare, Railway, Vercel, Fly, Render, and Docker Compose. To add a platform:
+1. Teach `scan_deploy_target_names.sh` how to extract the target name from that platform's config
+2. Teach `scan_bindings.sh` the platform's shared-resource identifiers (if any beyond the generic datastore scan)
+3. Add the config filename to `scan_deploy_surface.sh`
 
-| Skill | Trigger condition |
-|-------|-------------------|
-| `context-foundation` | Session-start check: "last defrag >30d ago" |
-| `epistemic-context-grounding` | Grounding surfaces "which one is canonical?" → systematic answer is defrag |
-| `application-git-engineering` | Post-migration verification: "did we leave orphans?" |
-| `coordinated-agent-teams` | After multi-agent work: "did parallel agents create fragments?" |
-| `production-hardening` | Pre-deploy sanity check for deploy-surface ambiguity |
-
-### Downstream (skills defrag hands off to when findings exist)
-
-Standard landmine-consolidation chain (🔴):
-```
-defrag → devops-architecture-perspectives → consequence-driven-design →
-specification-driven-development → application-git-engineering →
-production-hardening → context-package
-```
-
-Lightweight drift cleanup (🟡):
-```
-defrag → application-git-engineering (add README marker, delete orphan)
-```
-
-### Siblings (same "audit before action" family)
-
-- `kb-branch-audit` — same pattern applied to KB branches
-- `context-os-maintenance` — CLAUDE.md surface audit
-- `context-os-rebuild` — when drift is past the point of audit
-- `production-hardening` — consumes defrag's deploy-surface inventory as input
-
+The directory-level scanners (`scan_archive_markers.sh`, `scan_stale_forks.sh`, `scan_spec_dirs.sh`) are already platform-agnostic — they reason about directories, READMEs, and git history, not deploy configs.

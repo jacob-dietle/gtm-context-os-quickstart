@@ -24,11 +24,11 @@ echo "# Scope: $SCOPE"
 echo "# Host: $(hostname 2>/dev/null || echo unknown)"
 
 divider
-echo "## 1. Worker name collisions"
-bash "$SCRIPT_DIR/scan_worker_names.sh" "$SCOPE"
+echo "## 1. Deploy-target name collisions (CF / Railway / Vercel / Fly / Render / Compose)"
+bash "$SCRIPT_DIR/scan_deploy_target_names.sh" "$SCOPE"
 
 divider
-echo "## 2. Binding collisions (D1 / KV / R2 / routes)"
+echo "## 2. Binding collisions (shared datastore + CF D1/KV/R2/routes)"
 bash "$SCRIPT_DIR/scan_bindings.sh" "$SCOPE"
 
 divider

@@ -53,3 +53,29 @@ while IFS= read -r f; do
   remote=$(git -C "$dir" config --get remote.origin.url 2>/dev/null || echo "-")
   printf '| `%s` | vercel.json | (vercel) | - | `%s` |\n' "$dir" "$remote"
 done < <(find "$SCOPE" -name "vercel.json" -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null)
+
+# Railway — railway.json / railway.toml
+while IFS= read -r f; do
+  dir=$(dirname "$f")
+  if [ "${f##*.}" = "json" ]; then
+    name=$(grep -E '"name"[[:space:]]*:' "$f" 2>/dev/null | head -1 | sed -E 's/.*:[[:space:]]*"([^"]+)".*/\1/')
+  else
+    name=$(grep -E '^[[:space:]]*name[[:space:]]*=' "$f" 2>/dev/null | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+  fi
+  remote=$(git -C "$dir" config --get remote.origin.url 2>/dev/null || echo "-")
+  printf '| `%s` | %s | `%s` | - | `%s` |\n' "$dir" "$(basename "$f")" "${name:-?}" "$remote"
+done < <(find "$SCOPE" \( -name "railway.json" -o -name "railway.toml" \) -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null)
+
+# Render — render.yaml
+while IFS= read -r f; do
+  dir=$(dirname "$f")
+  remote=$(git -C "$dir" config --get remote.origin.url 2>/dev/null || echo "-")
+  printf '| `%s` | render.yaml | (render services) | - | `%s` |\n' "$dir" "$remote"
+done < <(find "$SCOPE" -name "render.yaml" -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null)
+
+# Docker Compose — docker-compose.yml
+while IFS= read -r f; do
+  dir=$(dirname "$f")
+  remote=$(git -C "$dir" config --get remote.origin.url 2>/dev/null || echo "-")
+  printf '| `%s` | %s | (compose services) | - | `%s` |\n' "$dir" "$(basename "$f")" "$remote"
+done < <(find "$SCOPE" \( -name "docker-compose.yml" -o -name "docker-compose.yaml" \) -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null)
