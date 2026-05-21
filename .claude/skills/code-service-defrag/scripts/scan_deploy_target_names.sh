@@ -83,18 +83,44 @@ echo ""
 
 found_dupes=0
 for name in "${!NAME_FILES[@]}"; do
-  count=$(echo -n "${NAME_FILES[$name]}" | grep -c '^')
-  if [ "$count" -gt 1 ]; then
-    found_dupes=$((found_dupes + 1))
-    echo "### 🔴 Deploy-target name collision: \`$name\` ($count configs)"
-    echo ""
-    echo "${NAME_FILES[$name]}" | sed '/^$/d' | while IFS= read -r line; do
-      echo "- \`$line\`"
-    done
-    echo ""
-    echo "  **Risk:** a deploy from any of these locations targets the same named deployment. If the resource bindings also match, the most recent deploy silently regresses the others."
-    echo ""
+  block="${NAME_FILES[$name]}"
+  count=$(echo -n "$block" | grep -c '^')
+  [ "$count" -gt 1 ] || continue
+  found_dupes=$((found_dupes + 1))
+
+  # Determine which platform(s) the collision spans. Severity is platform-calibrated:
+  #   cloudflare / fly  → 🔴  (target name is account/org-global; deploy overwrites silently, no protection)
+  #   railway / render  → 🟡  (project-scoped; collision only real if same project — confirm)
+  #   vercel            → 🟡  (the real key is the linked projectId, not the name field — confirm)
+  #   compose           → 🟢  (service names are per-file/project-scoped; cross-file match usually coincidental)
+  #   mixed platforms   → 🟢  (different namespaces; almost always coincidental)
+  platforms=$(echo "$block" | sed -n 's/.*(\([a-z-]*\))$/\1/p' | sort -u)
+  pcount=$(echo "$platforms" | sed '/^$/d' | wc -l | tr -d ' ')
+
+  if [ "$pcount" -gt 1 ]; then
+    sev="🟢"; note="Name appears across DIFFERENT platforms ($(echo $platforms | tr '\n' ' '))— separate namespaces, almost certainly coincidental. Verify, then ignore."
+  else
+    case "$platforms" in
+      cloudflare|fly)
+        sev="🔴"; note="$platforms target names are account/org-global. A deploy from any of these locations overwrites the same live deployment. If bindings also match → guaranteed silent prod regression." ;;
+      railway|render)
+        sev="🟡"; note="$platforms services are project-scoped. This is a landmine ONLY if these configs target the SAME project — confirm the linked project, then escalate to 🔴 or clear to 🟢." ;;
+      vercel)
+        sev="🟡"; note="Vercel's real deploy key is the linked projectId in .vercel/project.json, not the name field. Confirm whether these dirs link to the same project; if so → 🔴." ;;
+      compose)
+        sev="🟢"; note="Compose service names are scoped per-file/project. A cross-file name match is usually coincidental. The real Compose collision is a shared published port or named volume." ;;
+      *)
+        sev="🟡"; note="Unknown platform scoping — confirm whether these configs target the same deployment." ;;
+    esac
   fi
+
+  echo "### $sev Deploy-target name collision: \`$name\` ($count configs, platform: ${platforms:-?})"
+  echo ""
+  echo "$block" | sed '/^$/d' | while IFS= read -r line; do echo "- \`$line\`"; done
+  echo ""
+  echo "  **Severity rule:** $note"
+  echo "  See \`references/platform-collision-semantics.md\` for the full calibration."
+  echo ""
 done
 
 [ "$found_dupes" -eq 0 ] && echo "- 🟢 No duplicate deploy-target names detected."

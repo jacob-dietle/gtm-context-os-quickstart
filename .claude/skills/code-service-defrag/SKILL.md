@@ -1,15 +1,32 @@
 ---
 name: code-service-defrag
-description: This skill should be used to periodically audit a multi-app/multi-service codebase for duplication, drift, and silent-overwrite landmines — on any deploy platform (Cloudflare, Railway, Vercel, Fly, Render, Docker Compose). Scans for duplicate deploy-target names, colliding shared-resource bindings (shared databases, datastores, domains, CF D1/KV/R2), stale forks, ambiguous canonical-vs-archived status, and spec/context drift. Produces a severity-ranked report. Detect-only — does NOT auto-consolidate. Apply proactively on a monthly cadence, or reactively before any risky deploy, after a migration, or whenever canonical-source ambiguity is suspected. Core principle — agentic coding creates leverage at the cost of visibility, so drift accumulates silently until a deploy command hits the wrong target.
+description: This skill should be used to periodically defragment a multi-app/multi-service codebase — both CODE (duplicate deploy targets, colliding bindings, stale forks) and CONTEXT (parallel spec conventions, orphan docs, scattered context packages) — on any platform (Cloudflare, Railway, Vercel, Fly, Render, Docker Compose). Converts the vague "things are getting messy" feeling into specific, located, severity-ranked findings. Detect-only — does NOT auto-consolidate. Apply on a monthly cadence, before any risky deploy, after a migration, or whenever canonical-source ambiguity is suspected. Core principle — agentic coding fragments state faster than humans consolidate it, so drift accumulates silently until a deploy fires from the wrong place or an agent onboards from the wrong context.
 ---
 
 # Code + Service Defrag
 
-Systematic audit of a multi-service codebase for duplication, drift, and silent-overwrite landmines — where agents and humans both create and modify code faster than anyone maintains a mental model of it.
+Periodic consolidation of a fragmenting codebase — code AND context — back into coherent, single-source-of-truth wholes. The maintenance discipline that counteracts the entropy agentic coding produces.
 
-## The First Principle
+**Meta-Principle:** *Agentic coding fragments state faster than humans consolidate it.* Fragmentation only accumulates — it is the second law applied to repos. Defrag is the periodic counter-force. Run it on a cadence, or discover the fragmentation the day a deploy fires from the wrong directory.
 
-**Any system with multiple deployable units accumulates collision risk: two things that can silently overwrite or corrupt each other.** The platform changes the vocabulary, not the problem.
+## Why Fragmentation Is Inevitable (it is not a failure)
+
+Conway's Law says a system mirrors the communication structure of whoever built it. Invert it: a codebase touched by parallel agents and multiple humans across many sessions — with no single mind holding the whole map — *necessarily* accumulates fragments. Duplicate configs, forks, orphan specs, services quietly sharing a database. This is not sloppiness to feel bad about; it is the expected entropy of high-leverage, multi-actor development. The only real question is whether you defrag periodically **or** meet the fragmentation when it detonates.
+
+The leverage of agentic coding (ship 10x faster) is paid for in visibility (nobody holds the full map). Defrag buys the visibility back, cheaply, on a schedule.
+
+## Two Terrains Fragment in Parallel
+
+| Terrain | Fragments into | Detonates as |
+|---|---|---|
+| **Code** | duplicate deploy targets, colliding bindings, stale forks, orphan repos | a **silent prod overwrite** — deploy from the wrong dir clobbers the live one |
+| **Context** | parallel spec conventions, orphan docs, scattered context packages | a **false foundation** — an agent onboards from the wrong context and builds on it |
+
+Treat both as first-class. Code drift fails loud (eventually — when a deploy detonates). **Context drift fails silent** — an agent reads the wrong spec, produces confidently wrong work, and nobody notices until it ships. The context half of this skill is not a footnote to the code half; it is the half that fails without a stack trace.
+
+## The Collision Shape (universal across platforms)
+
+**Any system with multiple deployable units accumulates collision risk: two things that can silently overwrite or corrupt each other.** The platform changes the vocabulary, not the shape.
 
 | Universal concept | Cloudflare | Railway | Vercel | Fly | Docker Compose |
 |---|---|---|---|---|---|
@@ -18,12 +35,35 @@ Systematic audit of a multi-service codebase for duplication, drift, and silent-
 | **Domain claim** (exclusive, last-writer-wins) | route `pattern` | service domain | project domain | `[[services]]` | published port |
 | **Deploy config** | `wrangler.toml` | `railway.json/toml` | `vercel.json` | `fly.toml` | `docker-compose.yml` |
 
-The landmine is always the same shape: **two configs name the same target, or bind the same shared resource, and a deploy from the wrong directory clobbers production.** This skill scans for that shape across every platform present in the repo.
+The landmine is always the same shape: **two configs name the same target, or bind the same shared resource, and the platform does not stop the wrong one from winning.** Whether that shape is 🔴 or 🟢 depends on the platform's deploy model — see `references/platform-collision-semantics.md`. A name match is a *candidate*, never an automatic verdict.
+
+## Perceived vs Actual Problem
+
+Fragmentation registers as a vague *"things are getting messy in here"* unease. A vague feeling is not actionable, so it gets deferred — until it detonates. **Defrag's core move is converting the unactionable feeling into a specific, located, severity-ranked finding.**
+
+| Perceived (the feeling) | Actual (what defrag locates) |
+|---|---|
+| "Things are getting messy in here" | Two `wrangler.toml` deploy to the same worker — and you can't say which is live |
+| "I should clean up sometime" | Three services point at the same prod Postgres; none owns migrations |
+| "There's old stuff lying around" | A 6-month-old fork shares a name with the active dir; grep finds the wrong one first |
+| "The docs are a bit scattered" | Two context-package conventions; agents onboard from whichever they hit first |
+
+If a defrag pass ends with a *feeling* instead of a *located finding with a file path and a severity*, it failed.
+
+## The Three Tests (apply to any candidate)
+
+These are the teeth. Run them before classifying severity.
+
+**1. The "Which one is live?" test.** For every deploy-target name, can you name the canonical directory in under five seconds? Hesitation **is** the finding — your mental map has diverged from the repo. A system you can't answer this for instantly is already fragmented.
+
+**2. The "Two-deploy" test.** If you ran the deploy command from each directory sharing a target name, would the *same* live deployment change? **Yes →** they are the same target; one is a silent-overwrite landmine (🔴). **No** (different platform/project/namespace) → coincidental (🟢). This test is what `platform-collision-semantics.md` formalizes per platform.
+
+**3. The "Onboard cold" test (context).** If a fresh agent loaded context for this project right now, would it find **one** coherent source — or land in whichever fragment it happened to hit first? More than one possible answer = context fragmentation, even if every individual doc is fine.
 
 ## When to Apply This Skill
 
 Apply when:
-- **Periodic:** last defrag >30 days ago
+- **Periodic:** last defrag >30 days ago (the discipline — don't wait for a trigger)
 - **Pre-deploy:** before any `deploy` / `push` / `release` on a shared account
 - **Post-migration:** immediately after a repo merge, `git subtree add`, directory move, or fork consolidation
 - **Post-multi-agent work:** after parallel agents create parallel fragments
@@ -36,11 +76,9 @@ Do NOT apply when:
 - Auditing a single app's internal structure (use a general code-review/simplify pass)
 - Fixing is already planned and scoped — skip to the migration step
 
-## Core Principle
+## Detect-Only, Never Auto-Fix
 
-**Agentic coding creates leverage at the cost of visibility.** Sessions end with multiple codebases, forks, and deploy surfaces that nobody has a clear mental model of. Drift is silent until a wrong-directory deploy fires. This skill codifies the scan that would have caught the landmine *before* it fired.
-
-**Detect-only, never auto-fix.** The skill produces a severity-ranked report; the human decides what to consolidate. Auto-fixing would re-introduce the cowboy problem this skill is built to prevent.
+The skill produces a severity-ranked report; **the human decides what to consolidate.** Auto-fixing would re-introduce the exact cowboy problem this skill exists to prevent — one more actor changing state without holding the whole map. Defrag's job is to restore visibility, not to act on it unsupervised.
 
 ## Workflow
 
@@ -78,13 +116,17 @@ If a sub-scan returns no output, that is a finding in itself — note it explici
 
 ### Step 3: Classify Findings by Severity
 
-| Severity | Meaning | Trigger |
-|----------|---------|---------|
-| 🔴 **Landmine** | A single deploy could silently regress production | Duplicate deploy-target names with identical bindings; duplicate datastore bindings on prod; overlapping domain claims |
-| 🟡 **Drift** | Ambiguity that will become a landmine if not resolved | Same datastore referenced from multiple services; no archive marker on an inactive directory; stale fork; spec drift |
-| 🟢 **OK** | Expected state — explicit marker, no collisions | Directory with clear README disposition; single config per target name |
+**A name match is a *candidate*, not a verdict. Severity comes from the platform's deploy model — does it protect you from the collision, or leave it as a footgun?** Flattening "duplicate name = 🔴" across all platforms produces false confidence. Calibrate per platform using `references/platform-collision-semantics.md`.
 
-Consult `references/landmine-patterns.md` for the specific shapes that map to each severity.
+| Severity | Meaning | Example trigger |
+|----------|---------|-----------------|
+| 🔴 **Landmine** | A single deploy silently regresses production, no warning | Account/org-global target name + identical bindings (**Cloudflare, Fly**); overlapping domain claim; same datastore with no migration owner |
+| 🟡 **Candidate / Drift** | Real only if a platform-specific condition holds — confirm it | Same name on a **project-scoped** platform (Railway/Render — same project?); Vercel name match (same `projectId`?); shared datastore (intentional?); stale fork; spec drift |
+| 🟢 **OK / coincidental** | Platform protects you, or the match is across namespaces | Cross-platform name match (separate namespaces); Compose service name across files; explicit canonical/archived marker |
+
+**The 🔴 rule that never relaxes:** account/org-global name + identical bindings (Cloudflare, Fly) — the shape that fires silently with zero warning.
+
+For each candidate, run the platform-specific check in `references/platform-collision-semantics.md` and escalate (🟡→🔴) or clear (🟡→🟢). Never leave a 🟡 candidate unresolved on a platform whose footgun you haven't checked. See `references/landmine-patterns.md` for the catalog of shapes.
 
 ### Step 4: Produce the Defrag Report
 
@@ -152,6 +194,7 @@ Run individually for targeted investigation, or use `defrag_scan.sh` for the ful
 
 ### References (`references/`)
 
+- **`platform-collision-semantics.md`** — the calibration layer: per-platform deploy model, what each platform protects you from, and therefore what severity a detected collision deserves. This is where the skill's potency lives — consult it during classification.
 - **`landmine-patterns.md`** — the specific shapes of silent-overwrite landmines, with anonymized reproducing snippets and severity rules. Patterns are stated platform-agnostically with per-platform examples.
 - **`downstream-handoff.md`** — decision tree mapping finding types to remediation chains.
 - **`cadence.md`** — when to run, what to expect, how "good" looks over time.
